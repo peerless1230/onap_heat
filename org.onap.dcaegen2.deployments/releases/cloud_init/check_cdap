@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+
+# Copyright © 2015 Cask Data, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy of
+# the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations under
+# the License.
+
+function usage() {
+  cat <<EOF
+
+Nagios-style plugin to check status of CDAP System Services
+
+Requirements:
+  curl
+
+Usage: $0 [-hvk] [-t timeout] -u <uri> -T <token>
+
+Options:
+  -h                    Usage information.
+  -u <uri>              CDAP Router endpoint to check. Defaults to the
+                        environment variable CHECK_CDAP_URI, else http://localhost:11015.
+  -t <timeout>          Override default timeout (seconds). Defaults to the
+                        environment variable CHECK_CDAP_TIMEOUT, else 30.
+  -T <token>            CDAP Access Token. Defaults to the environment variable
+                        CHECK_CDAP_TOKEN, else empty.
+  -k                    Disable SSL certification validation
+  -v                    Verbose (debug) output.
+
+
+Examples:
+  Check that CDAP System Services are running:
+    $0 -u http://my.cdap.router.endpoint:11015
+
+EOF
+}
+
+# Option defaults
+OPT_VERBOSE=''
+CHECK_CDAP_URI=${CHECK_CDAP_URI:-'http://localhost:11015'}
+CHECK_CDAP_TIMEOUT=${CHECK_CDAP_TIMEOUT:-30}
+CHECK_CDAP_TOKEN=${CHECK_CDAP_TOKEN}
+OPT_SSL_INSECURE=''
+
+API_VERSION='v3'
+
+# Exit codes
+OK=0
+WARNING=1
+CRITICAL=2
+UNKNOWN=3
+
+# Results
+res_status=0
+res_message=''
+
+# Read in args
+while getopts "hvku:t:T:" opt; do
+  case $opt in
+    h)
+      usage
+      exit ${OK}
+      ;;
+    v)
+      OPT_VERBOSE=1
+      ;;
+    u)
+      CHECK_CDAP_URI=${OPTARG}
+      ;;
+    t)
+      CHECK_CDAP_TIMEOUT=${OPTARG}
+      ;;
+    T)
+      CHECK_CDAP_TOKEN=${OPTARG}
+      ;;
+    k)
+      OPT_SSL_INSECURE=1
+      ;;
+    \?)
+      echo "Invalid option supplied" >&2
+      usage
+      exit ${WARNING}
+      ;;
+  esac
+done
+
+# Get CDAP Service status and check for them to be OK
+function get_service_status {
+  local __status_url="${CHECK_CDAP_URI}/${API_VERSION}/system/services/status"
+  local __services=''
+  local __element=''
+  local __service=''
+  local __status=''
+
+  # Prep and execute a curl request
+  cdap_curl_request ${__status_url}
+
+  # Split response on , this will give array element as  "service_name":"STATUS"
+    IFS=',' read -a services <<< "${__curr_resp}"
+    for element in "${services[@]}"
+    do
+      IFS=':' read __service __status <<< "${element}"
+      # Trim to text between the quotes
+      __status="${__status%\"*}"
+      __status="${__status#*\"}"
+      __service="${__service%\"*}"
+      __service="${__service#*\"}"
+
+      # Ensure we have a result
+      if [ -z ${__service} ] || [ -z ${__status} ] ; then
+        echo "ERROR: unexpected response from CDAP api: ${services}"
+        exit ${CRITICAL}
+      fi
+
+      # Check for NOTOK
+      if [[ ${__status} =~ "NOTOK" ]] ; then
+        # Append to, or initialize, result message
+        res_status=${CRITICAL}
+        if [ -z "${res_message}" ] ; then
+          res_message=${__service}=${__status}
+        else
+          res_message=${res_message},${__service}=${__status}
+        fi
+
+        # Set exit status
+        res_status=${CRITICAL}
+      fi
+    done
+}
+
+# Makes a curl request to CDAP API. Fails fast on any non-200 HTTP return code
+#   Input:
+#     Arg1: API endpoint url
+#     ${OPT_VERBOSE}
+#   Output:
+#     ${__curr_resp}: response body, ie '{ "status":"RUNNING" }'
+function cdap_curl_request {
+  local __url=${1}
+
+  # Build curl command
+  local __curl_cmd="curl -s -m ${CHECK_CDAP_TIMEOUT} -w ' %{http_code}'"
+  [[ ${OPT_VERBOSE} ]] && __curl_cmd+=' -v'
+  [[ ${OPT_SSL_INSECURE} ]] && __curl_cmd+=' -k'
+  if [ -n "${CHECK_CDAP_TOKEN}" ] ; then
+    __curl_cmd+=" -H 'Authorization: Bearer"
+    __curl_cmd+=" ${CHECK_CDAP_TOKEN}'"
+  fi
+  __curl_cmd+=" ${__url}"
+
+  # Run curl command
+  local __resp=$(eval ${__curl_cmd})
+  local __exitcode=$?
+
+  # Abort Unknown if failed curl execution
+  if [[ ${__exitcode} -ne 0 ]] ; then
+    echo "UNKNOWN: curl error with exit code ${__exitcode}, output: ${__resp}"
+    exit ${UNKNOWN}
+  fi
+
+  # Handle per HTTP response code
+  local __respcode=${__resp##* }
+  case ${__respcode} in
+    200)
+      ;;
+    401)
+      if [ -n "${CHECK_CDAP_TOKEN}" ] ; then
+        echo "UNKNOWN: Invalid CDAP Access Token: ${__resp}"
+      else
+        echo "UNKNOWN: CDAP Access Token required: ${__resp}"
+      fi
+      exit ${UNKNOWN}
+      ;;
+    404)
+      echo "CRITICAL: CDAP Endpoint not found ${__respcode}: ${__url}"
+      exit ${CRITICAL}
+      ;;
+    000)
+      echo "UNKNOWN: CDAP Router appears to be down. HTTP response code ${__response}: ${__resp}"
+      exit ${UNKNOWN}
+      ;;
+    503)
+      echo "UNKNOWN: CDAP Master container not responding. HTTP response code ${__response}: ${__resp}"
+      exit ${UNKNOWN}
+      ;;
+    *)
+      echo "UNKNOWN: unexpected HTTP response code ${__respcode}: ${__resp}"
+      exit ${UNKNOWN}
+      ;;
+  esac
+
+# "Return" body portion of response
+__curr_resp=${__resp%% *}
+}
+
+# Begin main logic
+
+# Validate args
+if [ -z "${CHECK_CDAP_URI}" ] ; then
+  echo "ERROR: -u <uri> is required"
+  usage
+  exit ${UNKNOWN}
+fi
+
+# Confirm that curl is installed
+if [[ ! $(which curl) ]] ; then
+  echo "ERROR: curl must be installed and present in \$PATH"
+  exit ${UNKNOWN}
+fi
+
+get_service_status
+
+# Prepend result message with status string
+case ${res_status} in
+  0)
+    res_message="OK: All CDAP system services running"
+    ;;
+  1)
+    res_message="WARN: ${res_message}"
+    ;;
+  2)
+    res_message="CRITICAL: ${res_message}"
+    ;;
+  *)
+    res_message="UNKNOWN: ${res_message}"
+    ;;
+esac
+
+# Display result to user and exit
+echo ${res_message}
+exit ${res_status}

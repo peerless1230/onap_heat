@@ -1,0 +1,92 @@
+tosca_definitions_version: cloudify_dsl_1_3
+imports:
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/dockerplugin/2/dockerplugin_types.yaml
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/cdapcloudify/14/cdapcloudify_types.yaml
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/dcaepolicyplugin/1/dcaepolicyplugin_types.yaml
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/relationshipplugin/1/relationshipplugin_types.yaml
+
+inputs:
+  connected_broker_dns_name:
+    type: string
+    default: cdap_broker
+  aaiEnrichmentHost:
+    type: string
+  enableAAIEnrichment:
+    type: string
+    default: false
+  subscriberHostName:
+    type: string
+  publisherHostName:
+    type: string
+node_templates:
+  tca_tca:
+    type: dcae.nodes.MicroService.cdap
+    properties:
+      app_config:
+        appDescription: DCAE Analytics Threshold Crossing Alert Application
+        appName: dcae-tca
+        tcaAlertsAbatementTableName: TCAAlertsAbatementTable
+        tcaAlertsAbatementTableTTLSeconds: '1728000'
+        tcaSubscriberOutputStreamName: TCASubscriberOutputStream
+        tcaVESAlertsTableName: TCAVESAlertsTable
+        tcaVESAlertsTableTTLSeconds: '1728000'
+        tcaVESMessageStatusTableName: TCAVESMessageStatusTable
+        tcaVESMessageStatusTableTTLSeconds: '86400'
+        thresholdCalculatorFlowletInstances: '2'
+      app_preferences:
+        aaiEnrichmentHost:
+          get_input: aaiEnrichmentHost
+        aaiEnrichmentIgnoreSSLCertificateErrors: 'true'
+        aaiEnrichmentPortNumber: '8443'
+        aaiEnrichmentProtocol: https
+        aaiEnrichmentUserName: DCAE
+        aaiEnrichmentUserPassword: DCAE
+        aaiVMEnrichmentAPIPath: /aai/v11/search/nodes-query
+        aaiVNFEnrichmentAPIPath: /aai/v11/network/generic-vnfs/generic-vnf
+        enableAAIEnrichment: 
+          get_input: enableAAIEnrichment
+        enableAlertCEFFormat: 'false'
+        publisherContentType: application/json
+        publisherHostName:
+          get_input: publisherHostName
+        publisherHostPort: '3904'
+        publisherMaxBatchSize: '1'
+        publisherMaxRecoveryQueueSize: '100000'
+        publisherPollingInterval: '20000'
+        publisherProtocol: http
+        publisherTopicName: unauthenticated.DCAE_CL_OUTPUT
+        subscriberConsumerGroup: OpenDCAE-c12
+        subscriberConsumerId: c12
+        subscriberContentType: application/json
+        subscriberHostName:
+          get_input: subscriberHostName
+        subscriberHostPort: '3904'
+        subscriberMessageLimit: '-1'
+        subscriberPollingInterval: '30000'
+        subscriberProtocol: http
+        subscriberTimeoutMS: '-1'
+        subscriberTopicName: unauthenticated.SEC_MEASUREMENT_OUTPUT
+        tca_policy: '{"domain":"measurementsForVfScaling","metricsPerEventName":[{"eventName":"vFirewallBroadcastPackets","controlLoopSchemaType":"VNF","policyScope":"DCAE","policyName":"DCAE.Config_tca-hi-lo","policyVersion":"v0.0.1","thresholds":[{"closedLoopControlName":"ControlLoop-vFirewall-d0a1dfc6-94f5-4fd4-a5b5-4630b438850a","version":"1.0.2","fieldPath":"$.event.measurementsForVfScalingFields.vNicUsageArray[*].receivedTotalPacketsDelta","thresholdValue":300,"direction":"LESS_OR_EQUAL","severity":"MAJOR","closedLoopEventStatus":"ONSET"},{"closedLoopControlName":"ControlLoop-vFirewall-d0a1dfc6-94f5-4fd4-a5b5-4630b438850a","version":"1.0.2","fieldPath":"$.event.measurementsForVfScalingFields.vNicUsageArray[*].receivedTotalPacketsDelta","thresholdValue":700,"direction":"GREATER_OR_EQUAL","severity":"CRITICAL","closedLoopEventStatus":"ONSET"}]},{"eventName":"vLoadBalancer","controlLoopSchemaType":"VM","policyScope":"DCAE","policyName":"DCAE.Config_tca-hi-lo","policyVersion":"v0.0.1","thresholds":[{"closedLoopControlName":"ControlLoop-vDNS-6f37f56d-a87d-4b85-b6a9-cc953cf779b3","version":"1.0.2","fieldPath":"$.event.measurementsForVfScalingFields.vNicUsageArray[*].receivedTotalPacketsDelta","thresholdValue":300,"direction":"GREATER_OR_EQUAL","severity":"CRITICAL","closedLoopEventStatus":"ONSET"}]},{"eventName":"Measurement_vGMUX","controlLoopSchemaType":"VNF","policyScope":"DCAE","policyName":"DCAE.Config_tca-hi-lo","policyVersion":"v0.0.1","thresholds":[{"closedLoopControlName":"ControlLoop-vCPE-48f0c2c3-a172-4192-9ae3-052274181b6e","version":"1.0.2","fieldPath":"$.event.measurementsForVfScalingFields.additionalMeasurements[*].arrayOfFields[0].value","thresholdValue":0,"direction":"EQUAL","severity":"MAJOR","closedLoopEventStatus":"ABATED"},{"closedLoopControlName":"ControlLoop-vCPE-48f0c2c3-a172-4192-9ae3-052274181b6e","version":"1.0.2","fieldPath":"$.event.measurementsForVfScalingFields.additionalMeasurements[*].arrayOfFields[0].value","thresholdValue":0,"direction":"GREATER","severity":"CRITICAL","closedLoopEventStatus":"ONSET"}]}]}'
+      artifact_name: dcae-analytics-cdap-tca
+      artifact_version: 2.0.0
+      connections:
+        streams_publishes: []
+        streams_subscribes: []
+      jar_url: https://github.com/peerless1230/onap_heat/onap.installation/tca-jar/dcae-analytics-cdap-tca-2.0.0.jar
+      namespace: cdap_tca_hi_lo
+      programs:
+      - program_id: TCAVESCollectorFlow
+        program_type: flows
+      - program_id: TCADMaaPMRSubscriberWorker
+        program_type: workers
+      - program_id: TCADMaaPMRPublisherWorker
+        program_type: workers
+      service_component_type: cdap_app_tca
+      streamname: TCASubscriberOutputStream
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          inputs:
+            connected_broker_dns_name:
+              get_input: connected_broker_dns_name
+

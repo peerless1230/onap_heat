@@ -1,0 +1,63 @@
+# -*- indent-tabs-mode: nil -*- # vi: set expandtab:
+#
+# ============LICENSE_START====================================================
+# org.onap.dcae
+# =============================================================================
+# Copyright (c) 2017 AT&T Intellectual Property. All rights reserved.
+# =============================================================================
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#      http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ============LICENSE_END======================================================
+
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint installs the config binding service
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/3.4/types.yaml
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/dockerplugin/2/dockerplugin_types.yaml
+  - https://github.com/peerless1230/onap_heat/org.onap.dcaegen2.platform.plugins/releases/type_files/relationshipplugin/1/relationshipplugin_types.yaml
+inputs:
+  location_id:
+    type: string
+    default: ""
+
+  docker_host_override:
+    description: Target docker host to deploy applications to
+    default: 'platform_dockerhost'
+ 
+node_templates:
+  # Config binding service
+  service-config-binding:
+    type: dcae.nodes.DockerContainerForPlatforms
+    properties:
+        name: 'config_binding_service'
+        host_port: 10000
+        container_port: 10000
+        image: "nexus3.onap.org:10001/onap/org.onap.dcaegen2.platform.configbinding:v1.2.0"
+        docker_config:
+            healthcheck:
+                type: "http"
+                endpoint: "/healthcheck"
+
+    relationships:
+      - type: dcae.relationships.component_contained_in
+        target: docker_host
+
+  docker_host:
+    type: dcae.nodes.SelectedDockerHost
+    properties:
+        location_id:
+            { get_input: location_id }
+        docker_host_override:
+            { get_input: docker_host_override }
