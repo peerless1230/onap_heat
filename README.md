@@ -1,4 +1,10 @@
 # HEAT模板部署ONAP
+### 基本系统架构
+![ONAP_Amsterdam_deploy_architecture](https://github.com/peerless1230/peerless1230.github.io/blob/master/img/ONAP/ONAP_Amsterdamd_deploy_architecture.png)
+
+利用Openstack作为基础设施层，通过Heat模板启动15台虚拟机，其中`DCAE_bootstrap`虚拟机会使用`Cloudify`引导启动DCAE服务
+
+![ONAP_Amsterdam_dcae_bootstrap_architecture](https://github.com/peerless1230/peerless1230.github.io/blob/master/img/ONAP/ONAP_Amsterdam_dcae_bootstrap_architecture.png)
 ### 下载ONAP HEAT模板
 下载HEAT模板及其环境变量文件
 ```
